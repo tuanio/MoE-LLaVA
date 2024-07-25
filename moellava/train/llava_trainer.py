@@ -320,7 +320,7 @@ class LLaVATrainer(Trainer):
 
         run_dir = self._get_output_dir(trial=trial)
         output_dir = os.path.join(run_dir, checkpoint_folder)
-        # self.save_model(output_dir, _internal_call=True)
+        self.save_model(output_dir, _internal_call=True)
 
         if getattr(self.args, 'tune_mm_mlp_adapter', False):
             # Only save Adapter
@@ -337,9 +337,9 @@ class LLaVATrainer(Trainer):
             super(LLaVATrainer, self)._save_checkpoint(model, trial, metrics)
 
         # Save optimizer and scheduler
-        self._save_optimizer_and_scheduler(output_dir)
+        # self._save_optimizer_and_scheduler(output_dir)
         # Save RNG state
-        self._save_rng_state(output_dir)
+        # self._save_rng_state(output_dir)
 
         # # Update the `TrainerControl` state to where we are currently
         # self.state.stateful_callbacks["TrainerControl"] = self.control.state()

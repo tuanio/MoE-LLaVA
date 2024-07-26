@@ -496,7 +496,7 @@ def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, l
                 image_tower.load_model()
             image_tower.to(device=device, dtype=torch.float16)
             image_processor = image_tower.image_processor
-            processor['image'] = proprocessor
+            processor['image'] = image_processor
 
         if model.config.mm_video_tower is not None:
             video_tower = model.get_video_tower()

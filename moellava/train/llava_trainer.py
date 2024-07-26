@@ -256,73 +256,14 @@ class LLaVATrainer(Trainer):
 
         return self.optimizer
 
-    def _save_optimizer_and_scheduler(self, output_dir):
-        if is_torch_xla_available():
-            xm.rendezvous("saving_optimizer_states")
-            xm.save(self.optimizer.state_dict(), os.path.join(output_dir, OPTIMIZER_NAME))
-            with warnings.catch_warnings(record=True) as caught_warnings:
-                xm.save(self.lr_scheduler.state_dict(), os.path.join(output_dir, SCHEDULER_NAME))
-                reissue_pt_warnings(caught_warnings)
-        elif is_sagemaker_mp_enabled():
-            opt_state_dict = self.optimizer.local_state_dict(gather_if_shard=False)
-            smp.barrier()
-            if smp.rdp_rank() == 0 or smp.state.cfg.shard_optimizer_state:
-                smp.save(
-                    opt_state_dict,
-                    os.path.join(output_dir, OPTIMIZER_NAME),
-                    partial=True,
-                    v3=smp.state.cfg.shard_optimizer_state,
-                )
-        elif self.is_deepspeed_enabled:
-            # under zero3 model file itself doesn't get saved since it's bogus! Unless deepspeed
-            # config `stage3_gather_16bit_weights_on_model_save` is True
-            accept_exclude_frozen_parameters = "exclude_frozen_parameters" in set(
-                inspect.signature(self.model_wrapped.save_checkpoint).parameters.keys()
-            )
-            accept_exclude_frozen_parameters = True
-            if accept_exclude_frozen_parameters and _is_peft_model(self.model):
-                self.model_wrapped.save_checkpoint(output_dir, exclude_frozen_parameters=True)
-            else:
-                self.model_wrapped.save_checkpoint(output_dir)
-                
-        elif self.is_fsdp_enabled:
-            # save fsdp specific ckpt for resuming from ckpt
-            save_fsdp_model(
-                self.accelerator.state.fsdp_plugin, self.accelerator, self.model, output_dir, **_get_fsdp_ckpt_kwargs()
-            )
-            save_fsdp_optimizer(
-                self.accelerator.state.fsdp_plugin, self.accelerator, self.optimizer, self.model, output_dir
-            )
-        elif self.args.should_save:
-            # deepspeed.save_checkpoint above saves model/optim/sched
-            torch.save(self.optimizer.state_dict(), os.path.join(output_dir, OPTIMIZER_NAME))
-
-        # Save SCHEDULER & SCALER
-        is_deepspeed_custom_scheduler = self.is_deepspeed_enabled and not isinstance(
-            self.lr_scheduler, DeepSpeedSchedulerWrapper
-        )
-        if (
-            self.args.should_save
-            and (not self.is_deepspeed_enabled or is_deepspeed_custom_scheduler)
-            and not is_torch_xla_available()
-        ):
-            with warnings.catch_warnings(record=True) as caught_warnings:
-                torch.save(self.lr_scheduler.state_dict(), os.path.join(output_dir, SCHEDULER_NAME))
-            reissue_pt_warnings(caught_warnings)
-
     def _save_checkpoint(self, model, trial, metrics=None):
-        # Save model checkpoint
-        from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
-        checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
-
-        if self.hp_search_backend is None and trial is None:
-            self.store_flos()
-
-        run_dir = self._get_output_dir(trial=trial)
-        output_dir = os.path.join(run_dir, checkpoint_folder)
-        self.save_model(output_dir, _internal_call=True)
-
         if getattr(self.args, 'tune_mm_mlp_adapter', False):
+            from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
+            checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
+
+            run_dir = self._get_output_dir(trial=trial)
+            output_dir = os.path.join(run_dir, checkpoint_folder)
+
             # Only save Adapter
             keys_to_match = ['mm_projector', 'vision_resampler']
             if getattr(self.args, "use_im_start_end", False):
@@ -336,44 +277,8 @@ class LLaVATrainer(Trainer):
         else:
             super(LLaVATrainer, self)._save_checkpoint(model, trial, metrics)
 
-        # Save optimizer and scheduler
-        # self._save_optimizer_and_scheduler(output_dir)
-        # Save RNG state
-        # self._save_rng_state(output_dir)
-
-        # # Update the `TrainerControl` state to where we are currently
-        # self.state.stateful_callbacks["TrainerControl"] = self.control.state()
-        # self.state.save_to_json(os.path.join(output_dir, TRAINER_STATE_NAME))
-        self.state.save_to_json(os.path.join(output_dir, TRAINER_STATE_NAME))
-
-        if self.args.push_to_hub:
-            self._push_from_checkpoint(output_dir)
-
-        self._rotate_checkpoints(use_mtime=False, output_dir=run_dir)
-
-    # def _save_checkpoint(self, model, trial, metrics=None):
-    #     if getattr(self.args, 'tune_mm_mlp_adapter', False):
-    #         from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
-    #         checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
-
-    #         run_dir = self._get_output_dir(trial=trial)
-    #         output_dir = os.path.join(run_dir, checkpoint_folder)
-
-    #         # Only save Adapter
-    #         keys_to_match = ['mm_projector', 'vision_resampler']
-    #         if getattr(self.args, "use_im_start_end", False):
-    #             keys_to_match.extend(['embed_tokens', 'embed_in'])
-
-    #         weight_to_save = get_mm_adapter_state_maybe_zero_3(self.model.named_parameters(), keys_to_match)
-
-    #         if self.args.local_rank == 0 or self.args.local_rank == -1:
-    #             self.model.config.save_pretrained(output_dir)
-    #             torch.save(weight_to_save, os.path.join(output_dir, f'mm_projector.bin'))
-    #     else:
-    #         super(LLaVATrainer, self)._save_checkpoint(model, trial, metrics)
-
-    # def _save(self, output_dir: Optional[str] = None, state_dict=None):
-    #     if getattr(self.args, 'tune_mm_mlp_adapter', False):
-    #         pass
-    #     else:
-    #         super(LLaVATrainer, self)._save(output_dir, state_dict)
+    def _save(self, output_dir: Optional[str] = None, state_dict=None):
+        if getattr(self.args, 'tune_mm_mlp_adapter', False):
+            pass
+        else:
+            super(LLaVATrainer, self)._save(output_dir, state_dict)

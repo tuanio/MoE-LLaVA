@@ -142,10 +142,10 @@ class TrainingArguments(transformers.TrainingArguments):
     lora_alpha: int = 256
     lora_dropout: float = 0.05
     lora_weight_path: str = ""
+    lora_path: str = ""
     lora_bias: str = "none"
     mm_projector_lr: Optional[float] = None
     group_by_modality_length: bool = field(default=False)
-    lora_path: str = ""
 
 
 
@@ -1146,7 +1146,8 @@ def train():
 
     parser = transformers.HfArgumentParser(
         (ModelArguments, DataArguments, TrainingArguments))
-    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    model_args, data_args, training_args, remaining = parser.parse_args_into_dataclasses(return_remaining_strings=True)
+    print(remaining)
     local_rank = training_args.local_rank
     compute_dtype = (torch.float16 if training_args.fp16 else (torch.bfloat16 if training_args.bf16 else torch.float32))
 
@@ -1360,7 +1361,7 @@ def train():
             model = get_peft_model(model, lora_config)
         model.initialize_moe_modules(model_args=model_args)
     else:
-        if training_args.lora_enable and not training_args.lora_path:
+        if training_args.lora_enable and not remaining.lora_path:
             from peft import LoraConfig, get_peft_model
             lora_config = LoraConfig(
                 r=training_args.lora_r,
@@ -1377,7 +1378,7 @@ def train():
                     model.to(torch.float16)
             rank0_print("Adding LoRA adapters...")
             model = get_peft_model(model, lora_config)
-        elif training_args.lora_path:
+        elif remaining.lora_path:
             from peft import PeftModel
             rank0_print("Loading LoRA adapters...")
             if training_args.bits == 16:
@@ -1385,7 +1386,7 @@ def train():
                     model.to(torch.bfloat16)
                 if training_args.fp16:
                     model.to(torch.float16)
-            model = PeftModel.from_pretrained(model, training_args.lora_path)
+            model = PeftModel.from_pretrained(model, remaining.lora_path)
     # ==============================================================================================
 
     if 'mpt' in model_args.model_name_or_path:

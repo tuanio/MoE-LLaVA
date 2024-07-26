@@ -1361,7 +1361,7 @@ def train():
             model = get_peft_model(model, lora_config)
         model.initialize_moe_modules(model_args=model_args)
     else:
-        if training_args.lora_enable and not remaining.lora_path:
+        if training_args.lora_enable and not training_args.lora_path:
             from peft import LoraConfig, get_peft_model
             lora_config = LoraConfig(
                 r=training_args.lora_r,
@@ -1378,7 +1378,7 @@ def train():
                     model.to(torch.float16)
             rank0_print("Adding LoRA adapters...")
             model = get_peft_model(model, lora_config)
-        elif remaining.lora_path:
+        elif training_args.lora_path:
             from peft import PeftModel
             rank0_print("Loading LoRA adapters...")
             if training_args.bits == 16:
@@ -1386,7 +1386,7 @@ def train():
                     model.to(torch.bfloat16)
                 if training_args.fp16:
                     model.to(torch.float16)
-            model = PeftModel.from_pretrained(model, remaining.lora_path)
+            model = PeftModel.from_pretrained(model, training_args.lora_path)
     # ==============================================================================================
 
     if 'mpt' in model_args.model_name_or_path:
